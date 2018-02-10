@@ -108,12 +108,10 @@ def writeToFile(mySocket,filename):
         mySocket.send(sending_message)
         receiving_message = decryption(mySocket.recv(4096))
         text = ""
-        print(text)
         while receiving_message!="close" and receiving_message.find("\nclose")==-1 and not receiving_message.endswith("close"):
             text += receiving_message +"\n"
             mySocket.send(encryption(text))
             receiving_message = decryption(mySocket.recv(4096))
-            print(receiving_message)
     #Open the file write the message and close() at the end
         else:
             file = os.open(filename[6:],os.O_RDWR)
