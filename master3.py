@@ -21,8 +21,9 @@ def help_function():
     print("9. download 'filename' (downloads a file from the client to the server)")
     print("10. upload 'filename' (uploads a file from server to client)")
     print("11 execute 'filename' (executes a file)")
-    print("11 ip (prints the clients ip)")
-    print("12 info (prints hardware information cpu, disk space etc.)")
+    print("12 ip (prints the clients ip)")
+    print("13 info (prints hardware information cpu, disk space etc.)")
+    print("14 processes (prints the running processes.)")
     print("\n\n")
 
 
